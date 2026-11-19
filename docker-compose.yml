@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # GPU-enabled backend (requires NVIDIA GPU + nvidia-container-toolkit)
+  photogrammetry-gpu:
+    build:
+      context: .
+      target: gpu
+    container_name: photogrammetry-gpu
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - ./data/uploads:/data/uploads
+      - ./data/outputs:/data/outputs
+      - ./app:/app/app:ro
+      - ./temp:/tmp/photogrammetry
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # CPU-only backend (fallback)
+  photogrammetry-cpu:
+    build:
+      context: .
+      target: cpu
+    container_name: photogrammetry-cpu
+    volumes:
+      - ./data/uploads:/data/uploads
+      - ./data/outputs:/data/outputs
+      - ./app:/app/app:ro
+      - ./temp:/tmp/photogrammetry
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+
+  # Reverse proxy (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: photogrammetry-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - photogrammetry-gpu
+      - photogrammetry-cpu
+    profiles:
+      - proxy
+
+volumes:
+  uploads:
+  outputs:
+
+networks:
+  default:
+    name: photogrammetry-net
