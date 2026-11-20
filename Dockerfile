@@ -143,10 +143,31 @@ CMD ["python", "-m", "app.main"]
 # CPU-only stage (smaller, no CUDA)
 FROM base AS cpu
 
-# Install COLMAP from package (CPU only)
+# Install COLMAP from source (CPU only, no CUDA)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    colmap \
-    && rm -rf /var/lib/apt/lists/*
+    git \
+    cmake \
+    build-essential \
+    libsqlite3-dev \
+    libglew-dev \
+    libfreeimage-dev \
+    libmetis-dev \
+    libgflags-dev \
+    libgoogle-glog-dev \
+    libatlas-base-dev \
+    libsuitesparse-dev \
+    libeigen3-dev \
+    libboost-all-dev \
+    libflann-dev \
+    ninja-build \
+    && rm -rf /var/lib/apt/lists/* \
+    && git clone https://github.com/colmap/colmap.git /tmp/colmap \
+    && cd /tmp/colmap \
+    && mkdir build && cd build \
+    && cmake .. -DCUDA_ENABLED=OFF -DGUI_ENABLED=OFF \
+    && make -j$(nproc) \
+    && make install \
+    && rm -rf /tmp/colmap
 
 USER appuser
 
