@@ -34,13 +34,13 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Upgrade pip
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN /opt/venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
 
 WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/
