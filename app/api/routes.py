@@ -33,7 +33,7 @@ security = HTTPBearer(auto_error=False)
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint - public for monitoring"""
     # Check COLMAP
     colmap_version = None
     try:
@@ -391,10 +391,9 @@ class EngineConfig(BaseModel):
 
 @router.get("/engine/status")
 async def engine_status(
-    user: Optional[Dict[str, Any]] = Depends(get_current_user),
     engine_service: PolyFreeEngineService = Depends(get_engine_service),
 ):
-    """Get engine status and capabilities"""
+    """Get engine status and capabilities - public for testing"""
     return {
         "available": engine_service.available,
         "engine_path": engine_service.engine_path,

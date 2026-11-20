@@ -38,11 +38,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS for Android app
+# CORS for Android app and Web Preview
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins for testing - restrict in production
+    allow_credentials=False,  # Must be False when allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )

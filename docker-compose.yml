@@ -1,33 +1,6 @@
 version: '3.8'
 
 services:
-  # GPU-enabled backend (requires NVIDIA GPU + nvidia-container-toolkit)
-  photogrammetry-gpu:
-    build:
-      context: .
-      target: gpu
-    container_name: photogrammetry-gpu
-    runtime: nvidia
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - CUDA_VISIBLE_DEVICES=0
-    volumes:
-      - ./data/uploads:/data/uploads
-      - ./data/outputs:/data/outputs
-      - ./app:/app/app:ro
-      - ./temp:/tmp/photogrammetry
-    ports:
-      - "8000:8000"
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
   # CPU-only backend (fallback)
   photogrammetry-cpu:
     build:
@@ -42,26 +15,30 @@ services:
     ports:
       - "8001:8000"
     restart: unless-stopped
+    environment:
+      - POLYFREE_ENGINE_PATH=/opt/polyfree/bin/polyfree_pipeline
+      - POLYFREE_LIB_PATH=/opt/polyfree/lib/libpolyfree_core.a
 
-  # Reverse proxy (optional)
-  nginx:
-    image: nginx:alpine
-    container_name: photogrammetry-nginx
+  # Reverse proxy with Caddy (auto HTTPS via Let's Encrypt)
+  caddy:
+    image: caddy:2-alpine
+    container_name: photogrammetry-caddy
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
-      - photogrammetry-gpu
       - photogrammetry-cpu
-    profiles:
-      - proxy
+    restart: unless-stopped
 
 volumes:
   uploads:
   outputs:
+  caddy_data:
+  caddy_config:
 
 networks:
   default:

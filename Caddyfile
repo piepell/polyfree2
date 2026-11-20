@@ -1,0 +1,43 @@
+# PolyFree Caddy Configuration
+# Public reverse proxy without Basic Auth
+
+polyfreeapp.duckdns.org {
+    # Health check endpoint (no auth, direct)
+    handle /api/health {
+        reverse_proxy localhost:8001
+    }
+
+    # Engine status (public for testing)
+    handle /api/engine/status {
+        reverse_proxy localhost:8001
+    }
+
+    # API routes - proxy to CPU container
+    handle /api/* {
+        reverse_proxy localhost:8001
+    }
+
+    # Optional: Web UI / docs
+    handle /docs* {
+        reverse_proxy localhost:8001
+    }
+
+    handle /redoc* {
+        reverse_proxy localhost:8001
+    }
+
+    handle /openapi.json {
+        reverse_proxy localhost:8001
+    }
+
+    # Default: return 404 for unknown paths
+    handle {
+        respond "Not Found" 404
+    }
+
+    # Logging
+    log {
+        output stdout
+        format json
+    }
+}
