@@ -143,32 +143,14 @@ CMD ["python", "-m", "app.main"]
 # CPU-only stage (smaller, no CUDA)
 FROM base AS cpu
 
-# Install COLMAP from source (CPU only, no CUDA)
-RUN mkdir -p /var/lib/apt/lists/partial \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    cmake \
-    build-essential \
-    libsqlite3-dev \
-    libglew-dev \
-    libfreeimage-dev \
-    libmetis-dev \
-    libgflags-dev \
-    libgoogle-glog-dev \
-    libatlas-base-dev \
-    libsuitesparse-dev \
-    libeigen3-dev \
-    libboost-all-dev \
-    libflann-dev \
-    ninja-build \
+# Install pre-built COLMAP binary (Linux x64)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
     && rm -rf /var/lib/apt/lists/* \
-    && git clone https://github.com/colmap/colmap.git /tmp/colmap \
-    && cd /tmp/colmap \
-    && mkdir build && cd build \
-    && cmake .. -DCUDA_ENABLED=OFF -DGUI_ENABLED=OFF \
-    && make -j$(nproc) \
-    && make install \
-    && rm -rf /tmp/colmap
+    && wget -q https://github.com/colmap/colmap/releases/download/4.2.1/colmap-4.2.1-linux.tar.gz -O /tmp/colmap.tar.gz \
+    && tar -xzf /tmp/colmap.tar.gz -C /usr/local --strip-components=1 \
+    && rm /tmp/colmap.tar.gz \
+    && colmap --version
 
 USER appuser
 
