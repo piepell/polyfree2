@@ -13,8 +13,8 @@ open3d==0.20.0
 trimesh==4.6.0
 numpy-stl==3.1.0
 pycolmap==4.2.1
-torch==2.15.0
-torchvision==0.29.2
+torch==2.14.0
+torchvision==0.29.0
 Pillow==10.4.0
 tqdm==4.66.5
 psutil==6.0.0
