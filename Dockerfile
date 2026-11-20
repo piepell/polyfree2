@@ -144,7 +144,8 @@ CMD ["python", "-m", "app.main"]
 FROM base AS cpu
 
 # Install COLMAP from source (CPU only, no CUDA)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN mkdir -p /var/lib/apt/lists/partial \
+    && apt-get update && apt-get install -y --no-install-recommends \
     git \
     cmake \
     build-essential \
