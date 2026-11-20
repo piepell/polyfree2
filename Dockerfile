@@ -19,8 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     libgl1-mesa-glx \
-    libegl1 \
-    libgles2 \
+    libegl1-mesa \
+    libgles2-mesa \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -77,8 +77,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     libgl1-mesa-glx \
-    libegl1 \
-    libgles2 \
+    libegl1-mesa \
+    libgles2-mesa \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
