@@ -31,7 +31,7 @@ class PolyFreeEngineService:
         self.available = self._check_availability()
     
     def _check_availability(self) -> bool:
-        """Check if PolyFree engine or COLMAP fallback is available"""
+        """Check if PolyFree engine or COLMAP fallback (via pycolmap) is available"""
         # Check for shared library or executable
         paths_to_check = [
             self.engine_path,
@@ -46,16 +46,24 @@ class PolyFreeEngineService:
                 logger.info(f"PolyFree engine found at: {path}")
                 return True
         
-        # Check for COLMAP as fallback
+        # Check for pycolmap as fallback (Python pipeline)
+        try:
+            import pycolmap
+            logger.info("pycolmap found - using Python COLMAP pipeline")
+            return True
+        except ImportError:
+            pass
+        
+        # Check for COLMAP CLI as last resort
         try:
             import shutil
             if shutil.which("colmap"):
-                logger.info("COLMAP found - using fallback pipeline")
+                logger.info("COLMAP CLI found - using fallback pipeline")
                 return True
         except Exception:
             pass
         
-        logger.warning("Neither PolyFree engine nor COLMAP found")
+        logger.warning("Neither PolyFree engine nor pycolmap/COLMAP found")
         return False
     
     async def run_pipeline(

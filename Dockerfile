@@ -143,14 +143,8 @@ CMD ["python", "-m", "app.main"]
 # CPU-only stage (smaller, no CUDA)
 FROM base AS cpu
 
-# Install pre-built COLMAP binary (Linux x64)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget \
-    && rm -rf /var/lib/apt/lists/* \
-    && wget -q https://github.com/colmap/colmap/releases/download/4.2.1/colmap-4.2.1-linux.tar.gz -O /tmp/colmap.tar.gz \
-    && tar -xzf /tmp/colmap.tar.gz -C /usr/local --strip-components=1 \
-    && rm /tmp/colmap.tar.gz \
-    && colmap --version
+# No COLMAP binary needed - pycolmap (Python) is used via requirements.txt
+# The pipeline uses pycolmap Python API, not CLI
 
 USER appuser
 
