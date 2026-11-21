@@ -34,18 +34,22 @@ security = HTTPBearer(auto_error=False)
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint - public for monitoring"""
-    # Check COLMAP
+    # Check COLMAP or pycolmap
     colmap_version = None
     try:
-        result = await asyncio.create_subprocess_exec(
-            settings.COLMAP_PATH, "--version",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await result.communicate()
-        if result.returncode == 0:
-            colmap_version = stdout.decode().strip()
-    except Exception:
-        pass
+        import pycolmap
+        colmap_version = f"pycolmap {getattr(pycolmap, '__version__', 'available')}"
+    except ImportError:
+        try:
+            result = await asyncio.create_subprocess_exec(
+                settings.COLMAP_PATH, "--version",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await result.communicate()
+            if result.returncode == 0:
+                colmap_version = stdout.decode().strip()
+        except Exception:
+            pass
 
     # Check GPU
     gpu_available = False
@@ -98,9 +102,17 @@ class APIKeyResponse(BaseModel):
 
 @router.post("/auth/token", response_model=TokenResponse)
 async def create_token(token_request: TokenRequest):
-    """Create access token (placeholder - implement user verification)"""
-    # In production, verify against user database
-    if token_request.username == "admin" and token_request.password == "admin":
+    """Create access token with configurable credentials"""
+    username_valid = token_request.username == settings.ADMIN_USERNAME
+    password_valid = False
+    
+    if settings.ADMIN_PASSWORD_HASH:
+        from app.core.security import verify_password
+        password_valid = verify_password(token_request.password, settings.ADMIN_PASSWORD_HASH)
+    else:
+        password_valid = (token_request.password == settings.ADMIN_PASSWORD)
+    
+    if username_valid and password_valid:
         token = create_access_token(
             data={"sub": token_request.username, "roles": ["admin"]},
             expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -394,17 +406,18 @@ async def engine_status(
     engine_service: PolyFreeEngineService = Depends(get_engine_service),
 ):
     """Get engine status and capabilities - public for testing"""
+    is_avail = engine_service.available
     return {
-        "available": engine_service.available,
+        "available": is_avail,
         "engine_path": engine_service.engine_path,
         "library_path": engine_service.library_path,
         "capabilities": {
-            "sfm": True,
-            "mvs": True,
-            "meshing": True,
-            "texturing": True,
-            "export_formats": ["stl", "obj", "gltf", "glb", "ply", "xyz", "pts"],
-            "reconstruction_types": ["mesh", "3dgs", "nerf"],
+            "sfm": is_avail,
+            "mvs": is_avail,
+            "meshing": is_avail,
+            "texturing": is_avail,
+            "export_formats": ["stl", "obj", "gltf", "glb", "ply"] if is_avail else [],
+            "reconstruction_types": ["mesh"],
             "quality_presets": ["low", "medium", "high"],
         },
     }

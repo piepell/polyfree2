@@ -12,7 +12,7 @@ echo "=============================================="
 # 1. System aktualisieren & Docker installieren
 echo "📦 [1/8] System aktualisieren & Docker installieren..."
 apt update && apt upgrade -y
-apt install -y curl git ca-certificates gnupg lsb-release unzip
+apt install -y curl git ca-certificates gnupg lsb-release unzip jq
 
 # Docker Repository
 mkdir -p /etc/apt/keyrings
@@ -45,6 +45,7 @@ ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=10080
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=PolyFree2026!
+CORS_ORIGINS=*
 POLYFREE_ENGINE_PATH=/opt/polyfree/bin/polyfree_pipeline
 POLYFREE_LIB_PATH=/opt/polyfree/lib/libpolyfree_core.a
 EOF

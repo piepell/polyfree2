@@ -11,13 +11,15 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     WORKERS: int = 1
+    CORS_ORIGINS: str = "*"
 
     # Auth
     SECRET_KEY: str = "dev-secret-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = "adminpassword"
+    ADMIN_PASSWORD: str = "PolyFree2026!"
+    ADMIN_PASSWORD_HASH: Optional[str] = None
 
     # Processing
     MAX_IMAGES: int = 200

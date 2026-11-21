@@ -39,10 +39,11 @@ app = FastAPI(
 )
 
 # CORS for Android app and Web Preview
+origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for testing - restrict in production
-    allow_credentials=False,  # Must be False when allow_origins=["*"]
+    allow_origins=origins if origins else ["*"],
+    allow_credentials=True if origins and "*" not in origins else False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
