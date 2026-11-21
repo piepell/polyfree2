@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     OUTPUT_DIR: str = "/data/outputs"
     TEMP_DIR: str = "/tmp/photogrammetry"
     COLMAP_PATH: str = "colmap"
+    DATABASE_PATH: str = "/tmp/photogrammetry/polyfree.db"
 
     # Quality presets
     QUALITY_LOW_MAX_IMAGES: int = 50

@@ -2,6 +2,22 @@
 # Public reverse proxy without Basic Auth
 
 polyfreeapp.duckdns.org {
+    # Security headers
+    header {
+        # HSTS
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Content Security Policy
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none';"
+        # X-Frame-Options
+        X-Frame-Options "DENY"
+        # X-Content-Type-Options
+        X-Content-Type-Options "nosniff"
+        # Referrer Policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Permissions Policy
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+
     # Health check endpoint (no auth, direct)
     handle /api/health {
         reverse_proxy localhost:8001
@@ -27,6 +43,10 @@ polyfreeapp.duckdns.org {
     }
 
     handle /openapi.json {
+        reverse_proxy localhost:8001
+    }
+
+    handle /metrics {
         reverse_proxy localhost:8001
     }
 

@@ -106,13 +106,22 @@ api_key_manager = APIKeyManager()
 
 
 def verify_api_key(api_key: str = Depends(security)) -> Dict[str, Any]:
-    """Verify API key authentication"""
+    """Verify API key authentication from database"""
+    import asyncio
+    from app.core.database import load_api_key
+    
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API key required",
         )
-    key_data = api_key_manager.verify_key(api_key.credentials)
+    # Run async function in sync context
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    key_data = loop.run_until_complete(load_api_key(api_key.credentials))
     if not key_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -10,9 +10,10 @@ import subprocess
 import tempfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-import logging
+import structlog
 
 import cv2
 import numpy as np
@@ -21,11 +22,12 @@ import trimesh
 from stl import mesh as stl_mesh
 
 from app.core.config import settings, QUALITY_PRESETS
+from app.core.database import init_db, save_job, load_job, load_all_jobs, delete_job
 from app.models.schemas import (
     JobStatus, ReconstructionQuality, ReconstructionType, OutputFormat
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class PhotogrammetryPipeline:
@@ -344,14 +346,29 @@ class PhotogrammetryPipeline:
         return results
 
 
+# Thread pool for CPU-intensive tasks
+_cpu_executor = ThreadPoolExecutor(max_workers=max(1, settings.WORKERS))
+
+
+def run_in_threadpool(func, *args, **kwargs):
+    """Run CPU-bound function in thread pool"""
+    loop = asyncio.get_event_loop()
+    return loop.run_in_executor(_cpu_executor, func, *args, **kwargs)
+
+
 class JobManager:
-    """Manage photogrammetry jobs"""
+    """Manage photogrammetry jobs with SQLite persistence"""
 
     def __init__(self):
-        self.jobs: Dict[str, Dict] = {}
         self.queue: asyncio.Queue = asyncio.Queue()
         self.workers: List[asyncio.Task] = []
         self.running = False
+        self._worker_semaphore: Optional[asyncio.Semaphore] = None
+
+    async def initialize(self):
+        """Initialize database and load existing jobs"""
+        await init_db()
+        logger.info("JobManager initialized with database persistence")
 
     async def create_job(
         self,
@@ -363,77 +380,100 @@ class JobManager:
         scale: Optional[float],
     ) -> str:
         job_id = str(uuid.uuid4())[:8]
-        self.jobs[job_id] = {
+        job_data = {
             "job_id": job_id,
             "status": JobStatus.PENDING,
             "progress": 0.0,
             "message": "Job created",
             "current_step": "pending",
-            "quality": quality,
-            "reconstruction_type": reconstruction_type,
-            "output_formats": output_formats,
+            "quality": quality.value,
+            "reconstruction_type": reconstruction_type.value,
+            "output_formats": [f.value for f in output_formats],
             "texture": texture,
             "max_faces": max_faces,
             "scale": scale,
-            "created_at": time.time(),
-            "updated_at": time.time(),
             "result_files": {},
             "error": None,
         }
+        await save_job(job_data)
         await self.queue.put(job_id)
+        logger.info("Job created", job_id=job_id)
         return job_id
 
     async def add_images(self, job_id: str, image_paths: List[Path]):
-        if job_id not in self.jobs:
+        job = await load_job(job_id)
+        if not job:
             raise ValueError(f"Job {job_id} not found")
-        self.jobs[job_id]["image_paths"] = image_paths
-        self.jobs[job_id]["status"] = JobStatus.UPLOADING
+        job["image_paths"] = [str(p) for p in image_paths]
+        job["status"] = JobStatus.UPLOADING
+        await save_job(job)
 
     async def get_job_status(self, job_id: str) -> Optional[Dict]:
-        return self.jobs.get(job_id)
+        return await load_job(job_id)
 
-    async def start_workers(self, num_workers: int = 1):
+    async def list_jobs(self) -> List[Dict]:
+        return await load_all_jobs()
+
+    async def delete_job(self, job_id: str) -> bool:
+        return await delete_job(job_id)
+
+    async def start_workers(self, num_workers: Optional[int] = None):
+        if num_workers is None:
+            num_workers = settings.WORKERS
+        self._worker_semaphore = asyncio.Semaphore(num_workers)
         self.running = True
         for i in range(num_workers):
             worker = asyncio.create_task(self._worker_loop(i))
             self.workers.append(worker)
+        logger.info("Job workers started", count=num_workers)
 
     async def stop_workers(self):
         self.running = False
         for worker in self.workers:
             worker.cancel()
         await asyncio.gather(*self.workers, return_exceptions=True)
+        _cpu_executor.shutdown(wait=True)
+        logger.info("Job workers stopped")
 
     async def _worker_loop(self, worker_id: int):
-        logger.info(f"Worker {worker_id} started")
+        logger.info("Worker started", worker_id=worker_id)
         while self.running:
             try:
                 job_id = await asyncio.wait_for(self.queue.get(), timeout=1.0)
-                await self._process_job(job_id)
+                async with self._worker_semaphore:
+                    await self._process_job(job_id)
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                logger.error(f"Worker {worker_id} error: {e}")
+                logger.error("Worker error", worker_id=worker_id, error=str(e))
 
     async def _process_job(self, job_id: str):
-        job = self.jobs[job_id]
+        job = await load_job(job_id)
+        if not job:
+            logger.warning("Job not found, skipping", job_id=job_id)
+            return
+
         job["status"] = JobStatus.PROCESSING
         job["started_at"] = time.time()
+        await save_job(job)
 
         def status_callback(progress: float, step: str, message: str):
             job["progress"] = progress
             job["current_step"] = step
             job["message"] = message
             job["updated_at"] = time.time()
+            # Save progress periodically (not every update to avoid DB overload)
+            if progress % 0.1 < 0.02:  # Save roughly every 10%
+                asyncio.create_task(save_job(job.copy()))
 
         try:
-            pipeline = PhotogrammetryPipeline(job_id, job["quality"])
+            pipeline = PhotogrammetryPipeline(job_id, ReconstructionQuality(job["quality"]))
             pipeline.set_status_callback(status_callback)
 
             result_files = await pipeline.run_pipeline(
-                image_paths=job["image_paths"],
-                reconstruction_type=job["reconstruction_type"].value,
-                output_formats=[f.value for f in job["output_formats"]],
+                image_paths=[Path(p) for p in job.get("image_paths", [])],
+                reconstruction_type=job["reconstruction_type"],
+                output_formats=job["output_formats"],
                 texture=job["texture"],
                 max_faces=job["max_faces"],
                 scale=job["scale"],
@@ -446,12 +486,14 @@ class JobManager:
             job["completed_at"] = time.time()
 
         except Exception as e:
-            logger.error(f"Job {job_id} failed: {e}", exc_info=True)
+            logger.error("Job failed", job_id=job_id, error=str(e), exc_info=True)
             job["status"] = JobStatus.FAILED
             job["error"] = str(e)
             job["message"] = f"Processing failed: {e}"
 
         job["updated_at"] = time.time()
+        await save_job(job)
+        logger.info("Job finished", job_id=job_id, status=job["status"])
 
 
 # Global job manager instance

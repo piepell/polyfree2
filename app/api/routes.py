@@ -9,16 +9,19 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, BackgroundTasks, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, BackgroundTasks, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.core.config import settings
 from app.core.security import (
     create_access_token, verify_token, get_current_user, require_auth,
-    verify_api_key, api_key_manager
+    verify_api_key, api_key_manager, verify_password
 )
+from app.core.database import load_all_api_keys, save_api_key, revoke_api_key as db_revoke_api_key
 from app.models.schemas import (
     JobCreate, JobResponse, JobStatusResponse, UploadResponse,
     HealthResponse, JobStatus, OutputFormat, ReconstructionQuality, ReconstructionType
@@ -29,6 +32,7 @@ from app.services.file_service import get_file_service, FileService
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -101,13 +105,13 @@ class APIKeyResponse(BaseModel):
 
 
 @router.post("/auth/token", response_model=TokenResponse)
-async def create_token(token_request: TokenRequest):
-    """Create access token with configurable credentials"""
+@limiter.limit("5/minute")
+async def create_token(request: Request, token_request: TokenRequest):
+    """Create access token with configurable credentials (rate limited)"""
     username_valid = token_request.username == settings.ADMIN_USERNAME
     password_valid = False
     
     if settings.ADMIN_PASSWORD_HASH:
-        from app.core.security import verify_password
         password_valid = verify_password(token_request.password, settings.ADMIN_PASSWORD_HASH)
     else:
         password_valid = (token_request.password == settings.ADMIN_PASSWORD)
@@ -135,28 +139,37 @@ async def create_api_key(
     user: Dict[str, Any] = Depends(require_auth),
 ):
     """Create new API key (requires authentication)"""
-    api_key = api_key_manager.generate_key(key_data.name, key_data.permissions)
-    key_info = api_key_manager.api_keys[api_key]
+    import secrets
+    api_key = f"pf_{secrets.token_urlsafe(32)}"
+    key_info = {
+        "api_key": api_key,
+        "name": key_data.name,
+        "permissions": key_data.permissions or ["read", "write"],
+        "created_at": datetime.utcnow().isoformat(),
+        "active": True,
+    }
+    await save_api_key(key_info)
     
     return APIKeyResponse(
         api_key=api_key,
-        name=key_info["name"],
-        permissions=key_info["permissions"],
-        created_at=key_info["created_at"],
+        name=key_data.name,
+        permissions=key_data.permissions or ["read", "write"],
+        created_at=datetime.utcnow(),
     )
 
 
-@router.get("/auth/api-keys")
+@router.get("/auth/api-keys", response_model=List[APIKeyResponse])
 async def list_api_keys(user: Dict[str, Any] = Depends(require_auth)):
     """List API keys"""
+    keys = await load_all_api_keys()
     return [
-        {
-            "name": info["name"],
-            "permissions": info["permissions"],
-            "created_at": info["created_at"],
-            "active": info["active"],
-        }
-        for key, info in api_key_manager.api_keys.items()
+        APIKeyResponse(
+            api_key=key["api_key"],
+            name=key["name"],
+            permissions=json.loads(key["permissions"]),
+            created_at=datetime.fromisoformat(key["created_at"]) if isinstance(key["created_at"], str) else key["created_at"],
+        )
+        for key in keys
     ]
 
 
@@ -166,10 +179,10 @@ async def revoke_api_key(
     user: Dict[str, Any] = Depends(require_auth),
 ):
     """Revoke API key by prefix"""
-    # Find key by prefix
-    for key in list(api_key_manager.api_keys.keys()):
-        if key.startswith(key_prefix):
-            api_key_manager.revoke_key(key)
+    keys = await load_all_api_keys()
+    for key in keys:
+        if key["api_key"].startswith(key_prefix):
+            await db_revoke_api_key(key["api_key"])
             return {"message": f"Key {key_prefix} revoked"}
     
     raise HTTPException(status_code=404, detail="API key not found")
@@ -355,9 +368,8 @@ async def delete_job(
     # Clean up files
     await file_service.cleanup_job(job_id, keep_outputs=keep_outputs)
 
-    # Remove from memory
-    if job_id in job_manager.jobs:
-        del job_manager.jobs[job_id]
+    # Remove from database
+    await job_manager.delete_job(job_id)
 
     return {"message": "Job deleted"}
 
@@ -370,13 +382,13 @@ async def list_jobs(
     user: Optional[Dict[str, Any]] = Depends(get_current_user),
 ):
     """List all jobs with optional filtering"""
-    jobs_list = list(job_manager.jobs.values())
+    jobs_list = await job_manager.list_jobs()
     
     if status_filter:
         jobs_list = [j for j in jobs_list if j["status"] == status_filter]
     
     # Sort by created_at descending
-    jobs_list.sort(key=lambda x: x.get("created_at", 0), reverse=True)
+    jobs_list.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     
     # Apply pagination
     jobs_list = jobs_list[offset:offset + limit]
@@ -386,7 +398,7 @@ async def list_jobs(
             "job_id": j["job_id"],
             "status": j["status"],
             "progress": j["progress"],
-            "created_at": datetime.fromtimestamp(j["created_at"]) if j.get("created_at") else None,
+            "created_at": j.get("created_at"),
         }
         for j in jobs_list
     ]
